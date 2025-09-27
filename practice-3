@@ -1,0 +1,98 @@
+// index.js
+const express = require('express');
+const app = express();
+const PORT = 3000;
+
+app.use(express.json());
+
+// ---- In-memory Seat Management ----
+
+const SEAT_COUNT = 10;
+const LOCK_DURATION_MS = 60000; // 1 minute
+
+// Initialize seats
+const seats = Array.from({ length: SEAT_COUNT }, (_, i) => ({
+  id: i + 1,
+  status: 'available', // 'available' | 'locked' | 'booked'
+  lockedBy: null,
+  lockTimeout: null,
+}));
+
+// View all seats
+app.get('/seats', (req, res) => {
+  res.json(seats);
+});
+
+// Lock a seat
+app.post('/seats/:id/lock', (req, res) => {
+  const seatId = parseInt(req.params.id);
+  const { userId } = req.body;
+
+  if (!userId) {
+    return res.status(400).json({ message: 'userId is required.' });
+  }
+
+  const seat = seats.find(s => s.id === seatId);
+  if (!seat) {
+    return res.status(404).json({ success: false, message: 'Seat not found.' });
+  }
+
+  if (seat.status === 'booked') {
+    return res.status(400).json({ success: false, message: 'Seat already booked.' });
+  }
+
+  if (seat.status === 'locked') {
+    if (seat.lockedBy === userId) {
+      return res.status(200).json({ success: true, message: 'Seat already locked by you.' });
+    }
+    return res.status(400).json({ success: false, message: 'Seat is locked by another user.' });
+  }
+
+  // Lock seat
+  seat.status = 'locked';
+  seat.lockedBy = userId;
+
+  // Set lock expiration
+  seat.lockTimeout = setTimeout(() => {
+    if (seat.status === 'locked') {
+      seat.status = 'available';
+      seat.lockedBy = null;
+      seat.lockTimeout = null;
+      console.log(`Lock expired for seat ${seat.id}`);
+    }
+  }, LOCK_DURATION_MS);
+
+  return res.status(200).json({ success: true, message: 'Seat locked successfully.' });
+});
+
+// Confirm a seat
+app.post('/seats/:id/confirm', (req, res) => {
+  const seatId = parseInt(req.params.id);
+  const { userId } = req.body;
+
+  if (!userId) {
+    return res.status(400).json({ message: 'userId is required.' });
+  }
+
+  const seat = seats.find(s => s.id === seatId);
+  if (!seat) {
+    return res.status(404).json({ success: false, message: 'Seat not found.' });
+  }
+
+  if (seat.status !== 'locked' || seat.lockedBy !== userId) {
+    return res.status(400).json({ success: false, message: 'You must lock the seat before confirming.' });
+  }
+
+  // Confirm seat
+  seat.status = 'booked';
+  seat.lockedBy = null;
+  clearTimeout(seat.lockTimeout);
+  seat.lockTimeout = null;
+
+  return res.status(200).json({ success: true, message: 'Seat booked successfully.' });
+});
+
+// ---- Start Server ----
+app.listen(PORT, () => {
+  console.log(`🚀 Server running at http://localhost:${PORT}`);
+});
